@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Photo Wall</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+  <style>
+    body{
+      font-family:sans-serif;
+      background:#f7f7f7;
+      padding:20px;
+      text-align:center;
+    }
+
+    h1{
+      margin-bottom:20px;
+    }
+
+    #gallery{
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+      gap:16px;
+      margin-top:20px;
+    }
+
+    .photo-card{
+      background:white;
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow:0 4px 10px rgba(0,0,0,0.08);
+      padding-bottom:10px;
+    }
+
+    img{
+      width:100%;
+      height:220px;
+      object-fit:cover;
+    }
+
+    button{
+      border:none;
+      padding:10px 16px;
+      border-radius:10px;
+      cursor:pointer;
+      margin-top:10px;
+    }
+
+    .delete-btn{
+      background:#ff4d4d;
+      color:white;
+    }
+
+    .upload-btn{
+      background:black;
+      color:white;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📸 Shared Photo Wall</h1>
+
+  <input type="file" id="fileInput" accept="image/*" />
+
+  <button class="upload-btn" onclick="uploadPhoto()">
+    Upload
+  </button>
+
+  <div id="gallery"></div>
+
+  <script>
+    // 替换成你自己的配置
+    const SUPABASE_URL = "https://nvovqhrgjnahvppxndsn.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52b3ZxaHJnam5haHZwcHhuZHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMDU0NzcsImV4cCI6MjA5NTY4MTQ3N30.GnexAuMP0J1RJtG0lYXfPRRV-RzsFhuE38jleHHNIkk";
+
+    const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    async function uploadPhoto() {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert("请选择图片");
+        return;
+      }
+
+      // 文件名安全处理
+      const safeName = file.name.replace(/[^\w.]/g, '_');
+      const fileName = Date.now() + "-" + safeName;
+
+      const { data: storageData, error: storageErr } = await client.storage
+        .from("photos")
+        .upload(fileName, file);
+
+      if (storageErr) {
+        alert("上传失败：" + storageErr.message);
+        console.log(storageErr);
+        return;
+      }
+
+      const imageUrl =
+        `${SUPABASE_URL}/storage/v1/object/public/photos/${fileName}`;
+
+      const { error: dbErr } = await client
+        .from("photos")
+        .insert([{ image_url: imageUrl }]);
+
+      if (dbErr) {
+        alert("写入数据库失败");
+        console.log(dbErr);
+        return;
+      }
+
+      loadPhotos();
+    }
+
+    async function loadPhotos() {
+      const gallery = document.getElementById("gallery");
+
+      const { data } = await client
+        .from("photos")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      gallery.innerHTML = "";
+
+      data.forEach(photo => {
+        const card = document.createElement("div");
+        card.className = "photo-card";
+
+        card.innerHTML = `
+          <img src="${photo.image_url}" />
+          <button class="delete-btn" onclick="deletePhoto(${photo.id}, '${photo.image_url.split('/').pop()}')">
+            Delete
+          </button>
+        `;
+
+        gallery.appendChild(card);
+      });
+    }
+
+    // 同时删除数据库 + 存储桶文件
+    async function deletePhoto(id, fileName) {
+      // 删除存储文件
+      await client.storage.from("photos").remove([fileName]);
+      // 删除数据库记录
+      await client.from("photos").delete().eq("id", id);
+
+      loadPhotos();
+    }
+
+    loadPhotos();
+  </script>
+
+</body>
+</html>
